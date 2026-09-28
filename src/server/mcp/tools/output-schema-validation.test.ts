@@ -248,6 +248,21 @@ describe("MCP output compatibility across deployments", () => {
 });
 
 describe("get_backlinks_profile MCP tool", () => {
+  it("defaults pageSize to 50 and still allows 200", () => {
+    const schema = z.object(getBacklinksProfileTool.config.inputSchema);
+    expect(
+      schema.parse({ projectId: "project_123", target: "example.com" })
+        .pageSize,
+    ).toBe(50);
+    expect(
+      schema.safeParse({
+        projectId: "project_123",
+        target: "example.com",
+        pageSize: 200,
+      }).success,
+    ).toBe(true);
+  });
+
   it("returns paginated backlink rows and honors filters, sorting, and mode", async () => {
     mocks.profileBacklinksPage.mockResolvedValue(backlinkPage);
 

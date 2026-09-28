@@ -49,6 +49,10 @@ import {
   researchScopeSchema,
 } from "@/shared/researchScope";
 
+// A limit of 100 beside get_backlinks_profile pageSize 200 has exhausted the
+// self-host Worker (HTTP 503 / Error 1102). 100 stays allowed for one call.
+const RANKED_KEYWORDS_DEFAULT_LIMIT = 25;
+
 const rankedResultTypeSchema = z.enum([
   "organic",
   "paid",
@@ -202,8 +206,10 @@ const getRankedKeywordsInputSchema = {
     .int()
     .min(1)
     .max(100)
-    .optional()
-    .describe("Maximum rows to return (1-100). Defaults to 50."),
+    .default(RANKED_KEYWORDS_DEFAULT_LIMIT)
+    .describe(
+      "Maximum rows to return (1-100). Defaults to 25. Prefer 25; 100 is expensive on Cloudflare Workers.",
+    ),
   offset: z
     .number()
     .int()
@@ -397,7 +403,9 @@ const getKeywordMetricsInputSchema = {
 } as const;
 
 type Market = z.infer<typeof marketSchema>;
-type GetRankedKeywordsArgs = z.infer<
+// Input type: callers may omit limit. The schema default and the handler
+// fallback both fill 25.
+type GetRankedKeywordsArgs = z.input<
   z.ZodObject<typeof getRankedKeywordsInputSchema>
 >;
 type FindSerpCompetitorsArgs = z.infer<
@@ -621,6 +629,42 @@ type RankedKeywordRow = {
   url: unknown;
 };
 
+// Labs rows embed a full SERP element (snippet text, sitelinks, xpaths) and
+// twelve months of search history. The tool contract is keyword, URL, rank,
+// volume, CPC, intent, traffic, and the ranking row's last_updated_time.
+// Dropping the blobs keeps structuredContent small on a 128MB Worker.
+const RANKED_KEYWORD_HEAVY_FIELDS = [
+  ["keyword_data", "keyword_info", "monthly_searches"],
+  ["keyword_data", "keyword_info", "categories"],
+  ["ranked_serp_element", "serp_item", "description"],
+  ["ranked_serp_element", "serp_item", "pre_snippet"],
+  ["ranked_serp_element", "serp_item", "extended_snippet"],
+  ["ranked_serp_element", "serp_item", "links"],
+  ["ranked_serp_element", "serp_item", "highlighted"],
+  ["ranked_serp_element", "serp_item", "xpath"],
+  ["ranked_serp_element", "serp_item", "about_this_result"],
+  ["ranked_serp_element", "serp_item", "images"],
+  ["ranked_serp_element", "serp_item", "faq"],
+] as const;
+
+function omitHeavyRankedKeywordFields(item: unknown) {
+  if (!item || typeof item !== "object") return item;
+  for (const path of RANKED_KEYWORD_HEAVY_FIELDS) {
+    let current: unknown = item;
+    for (let index = 0; index < path.length - 1; index++) {
+      if (!current || typeof current !== "object") {
+        current = undefined;
+        break;
+      }
+      current = (current as Record<string, unknown>)[path[index]];
+    }
+    if (current && typeof current === "object") {
+      delete (current as Record<string, unknown>)[path[path.length - 1]];
+    }
+  }
+  return item;
+}
+
 function toRankedKeywordRow(item: unknown): RankedKeywordRow {
   return {
     keyword:
@@ -783,7 +827,7 @@ export const getRankedKeywordsTool = {
   config: {
     title: "Get ranked keywords",
     description:
-      "Returns market-specific keyword, URL, rank, search volume, CPC, intent, and traffic rows for a domain or page. Accepts country-level DataForSEO Labs location/language codes. Use this for strategy evidence; use get_domain_overview for aggregate domain footprint. Charges credits.",
+      "Returns market-specific keyword, URL, rank, search volume, CPC, intent, and traffic rows for a domain or page. Accepts country-level DataForSEO Labs location/language codes. Use this for strategy evidence; use get_domain_overview for aggregate domain footprint. Default limit is 25 (max 100). Prefer 25; a limit of 100 is expensive on Cloudflare Workers and can exhaust CPU or the 128MB isolate (HTTP 503 / Error 1102). Do not call this tool in the same turn or in parallel with get_backlinks_profile — run one, then the other. Charges credits.",
     inputSchema: getRankedKeywordsInputSchema,
     outputSchema: z.looseObject({
       keywords: z.array(looseObjectOutputSchema),
@@ -822,7 +866,7 @@ export const getRankedKeywordsTool = {
       target: target.hostname,
       locationCode: market.locationCode,
       languageCode: market.languageCode,
-      limit: args.limit ?? 50,
+      limit: args.limit ?? RANKED_KEYWORDS_DEFAULT_LIMIT,
       offset: args.offset,
       orderBy: sortOrderByRankedMode(args.sortBy),
       filters: buildRankedKeywordFilters(
@@ -836,7 +880,8 @@ export const getRankedKeywordsTool = {
       itemTypes: args.resultTypes,
     });
 
-    const rankedRows = keywords.items.map(toRankedKeywordRow);
+    const items = keywords.items.map(omitHeavyRankedKeywordFields);
+    const rankedRows = items.map(toRankedKeywordRow);
     const targetLabel = `${target.display} (scope: ${target.scope})`;
     const text =
       rankedRows.length === 0
@@ -851,7 +896,7 @@ export const getRankedKeywordsTool = {
         { domain: target.display, scope: target.scope },
       ),
       structuredContent: {
-        keywords: keywords.items,
+        keywords: items,
         totalCount: keywords.totalCount,
         target: target.display,
         scope: target.scope,

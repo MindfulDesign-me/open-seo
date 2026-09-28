@@ -442,7 +442,11 @@ export default Alchemy.Stack(
       // workflow's per-tick CPU is measured or it moves too. Configurable CPU
       // limits are a paid-plan feature, and self-host deploys
       // (cloudflare_access) may run on the free plan — which rejects them —
-      // so those get the plan default instead.
+      // so those get the plan default instead. Leave cpuMs unset for self-host
+      // until the account is confirmed Workers Paid. Heavy MCP tools have
+      // returned Error 1102; smaller tool defaults are the mitigation, and
+      // memory stays 128MB even on Paid. Optional follow-up only: if Metrics
+      // show exceeded CPU and the plan is Paid, set cpuMs to 300_000.
       ...(authMode === "cloudflare_access"
         ? {}
         : { limits: { cpuMs: 300_000 } }),

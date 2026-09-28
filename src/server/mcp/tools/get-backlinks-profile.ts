@@ -13,7 +13,6 @@ import {
   BACKLINKS_DEFAULT_SORT,
   BACKLINKS_PAGE_SIZES,
   BACKLINKS_SCOPE_DESCRIPTION,
-  DEFAULT_BACKLINKS_PAGE_SIZE,
   backlinksRowsFiltersSchema,
   backlinksRowsModeSchema,
   backlinksRowsSortFieldSchema,
@@ -23,6 +22,11 @@ import {
 } from "@/types/schemas/backlinks";
 import { researchScopeSchema } from "@/shared/researchScope";
 import { normalizeBacklinksTarget } from "@/server/lib/dataforseoBacklinksTarget";
+
+// Dashboard backlinks still default to 100. MCP defaults to 50 because a
+// page of 200, especially beside get_ranked_keywords, has exhausted the
+// self-host Worker (HTTP 503 / Error 1102).
+const MCP_BACKLINKS_DEFAULT_PAGE_SIZE = 50;
 
 const inputSchema = {
   projectId: projectIdSchema,
@@ -48,8 +52,10 @@ const inputSchema = {
     .refine((value) =>
       (BACKLINKS_PAGE_SIZES as readonly number[]).includes(value),
     )
-    .default(DEFAULT_BACKLINKS_PAGE_SIZE)
-    .describe("Rows per page. Allowed values: 50, 100, or 200."),
+    .default(MCP_BACKLINKS_DEFAULT_PAGE_SIZE)
+    .describe(
+      "Rows per page. Allowed values: 50, 100, or 200. Prefer 50. 200 is expensive on Cloudflare Workers.",
+    ),
   sortField: backlinksRowsSortFieldSchema
     .default(BACKLINKS_DEFAULT_SORT.backlinks.field)
     .describe("Backlink row sort field."),
@@ -123,7 +129,7 @@ export const getBacklinksProfileTool = {
   config: {
     title: "Get backlinks profile",
     description:
-      "Returns one bounded page of detailed backlink rows for a domain or page: linking URLs, target URLs, anchors, dofollow/nofollow, authority/spam signals, and lost/broken status. Supports filters, sorting, one_per_domain/as_is mode, and pagination. Charges credits (~30 per page typical). Self-hosted deployments need the Backlinks API enabled on their DataForSEO account.",
+      "Returns one bounded page of detailed backlink rows for a domain or page: linking URLs, target URLs, anchors, dofollow/nofollow, authority/spam signals, and lost/broken status. Supports filters, sorting, one_per_domain/as_is mode, and pagination. Prefer pageSize 50; 200 is expensive on Cloudflare Workers and can exhaust CPU or the 128MB isolate (HTTP 503 / Error 1102). Do not call this tool in the same turn or in parallel with get_ranked_keywords — run one, then the other. Charges credits (~30 per page typical). Self-hosted deployments need the Backlinks API enabled on their DataForSEO account.",
     inputSchema,
     outputSchema: z.looseObject({
       target: z.string(),
