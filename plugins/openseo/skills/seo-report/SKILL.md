@@ -66,7 +66,7 @@ These are enforced by the viewer, not by taste. A report that breaks them render
 
 ## After you save
 
-- `save_report` returns `{ reportId, url, htmlBytes }`. The whole reply is at most three short bullets, then the link last on its own line as `Read the full report: <url>`. The bullets: the verdict, the leading recommendation and expected benefit if supported, and anything the user has to act on (a project you created, a question you need answered). Nothing else: no account of the run, no reviewer notes, no list of what worked, no restating the report. The report is how they learn; chat only points at it.
+- `save_report` returns `{ reportId, title, created, htmlBytes, url, summary, html }`. `summary` is the markdown brief and `html` is the full document, so the client can attach them as a file the user opens without a separate browser login. `url` is an optional link to the same report in the app and may require that login. Do not treat it as the only copy. The whole chat reply is at most three short bullets: the verdict, the leading recommendation and expected benefit if supported, and anything the user has to act on (a project you created, a question you need answered). Nothing else: no account of the run, no reviewer notes, no list of what worked, no restating the report. Do not paste the HTML into the chat message. An optional last line may be `Open in the app: <url>`.
 - The skill you are running appends its own research-log line; add one only if it does not: `{ appendResearchLog: { summary: "Report: <title>. Verdict: <conclusion>" } }`.
 - If the save fails, the error names the limit and the value. Fix that one thing and save again. Never paste the report into chat instead.
 
@@ -249,6 +249,6 @@ footer{max-width:660px;margin:64px 0 0;padding:26px 0 0;border-top:1px solid var
 
 - Do not narrate the run in chat. Three bullets and the link is the ceiling, not the floor.
 - Do not restyle the template per report. One look, kept good, is the point. A report template may set `--accent`, the byline (for example `Prepared for NAME` or a `Prepared by` sign-off), and the footer; nothing else in the CSS changes.
-- Do not paste the report body into chat, and do not offer to write it to a local file instead. The report lives in the project.
+- Do not paste the report body into the chat message. The full HTML and markdown summary are already in the `save_report` result for the client to attach as a file. Do not require the user to open `url`.
 - Do not save a report into a project you were not asked about. `save_report` takes the `projectId` the skill is already working in.
 - Do not invent a number to fill a table cell. Write `unknown` and say why in a `.note`.
