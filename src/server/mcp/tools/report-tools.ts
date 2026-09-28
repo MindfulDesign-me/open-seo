@@ -105,7 +105,11 @@ const saveOutputSchema = z.looseObject({
   title: z.string(),
   created: z.boolean(),
   htmlBytes: z.number(),
+  // Optional in-app link. A deployment may put the page behind a separate
+  // browser login, so clients must not treat this as the only copy.
   url: z.string(),
+  summary: z.string(),
+  html: z.string(),
   ...optionalMetaOutputSchema,
 });
 
@@ -114,7 +118,7 @@ export const saveReportTool = {
   config: {
     title: "Save report",
     description:
-      "Saves a finished HTML report to this project, where anyone in the workspace can read and print it. Uses no credits. Call list_reports first and pass the matching reportId to replace that report instead of creating a near-duplicate — a save whose title already exists in the project is refused. Give the report a specific title (the report type or subject and full report date), a summary carrying the verdict, the top action and the key numbers, and the skill slug you are running. Then reply with the returned url, a one-line verdict and the single top action; do not paste the report into chat.",
+      "Saves a finished HTML report to this project, where anyone in the workspace can read and print it. Uses no credits. Call list_reports first and pass the matching reportId to replace that report instead of creating a near-duplicate — a save whose title already exists in the project is refused. Give the report a specific title (the report type or subject and full report date), a summary carrying the verdict, the top action and the key numbers, and the skill slug you are running. The result includes the markdown summary and the full HTML document so the client can attach them as a file. url is an optional in-app link and may require a separate browser login. Reply with a one-line verdict and the single top action. Do not paste the report into the chat message, and do not treat url as the only way to read it.",
     inputSchema: saveInputSchema,
     outputSchema: saveOutputSchema,
     annotations: {
@@ -169,7 +173,21 @@ export const saveReportTool = {
       });
 
       return mcpResponse({
-        text: `${saved.created ? "Saved" : "Replaced"} report "${saved.title}" (${size(saved.htmlBytes)}). Open it at ${url}. Reply with this link, a one-line verdict, and the single top action — do not paste the report into chat.`,
+        // The document is in `text` for clients that only forward content
+        // blocks, and again on structured fields so a host can attach the
+        // file without parsing that prose. `url` stays optional.
+        text: [
+          `${saved.created ? "Saved" : "Replaced"} report "${saved.title}" (${size(saved.htmlBytes)}).`,
+          "The full report follows (markdown summary, then HTML) and is also in the summary and html fields. Attach that file for the user.",
+          `Optional app link (may require a separate browser login): ${url}.`,
+          "Reply with a one-line verdict and the single top action. Do not paste the report into the chat message.",
+          "",
+          "Markdown summary:",
+          args.summary,
+          "",
+          "HTML document:",
+          args.html,
+        ].join("\n"),
         meta: buildProjectMeta(context, args.projectId, path),
         structuredContent: {
           reportId: saved.reportId,
@@ -177,6 +195,8 @@ export const saveReportTool = {
           created: saved.created,
           htmlBytes: saved.htmlBytes,
           url,
+          summary: args.summary,
+          html: args.html,
         },
       });
     },
@@ -291,7 +311,7 @@ const getInputSchema = {
     .boolean()
     .optional()
     .describe(
-      "Include the full HTML document. Leave it off unless you need to edit a specific passage: an 80 KB report is roughly 20,000 tokens, and a larger one is truncated by many clients. When you do fetch it, compare new TextEncoder().encode(html).length against the returned htmlBytes — if it is smaller your client truncated the read, so send the user to the app instead of saving the short version back over the good report.",
+      "Include the full HTML document in the text and in report.html, so a client can attach the file. Leave it off unless you need the document: an 80 KB report is roughly 20,000 tokens, and a larger one is truncated by many clients. When you do fetch it, compare new TextEncoder().encode(html).length against the returned htmlBytes — if it is smaller your client truncated the read, so do not save that short version back over the good report.",
     ),
 } as const;
 
@@ -305,7 +325,7 @@ export const getReportTool = {
   config: {
     title: "Get report",
     description:
-      "Reads one saved report: title, skill, attribution, size, and the full summary. Uses no credits. This is the cheap way to see what a report already says before you revise it — pass includeHtml only when you need the document itself.",
+      "Reads one saved report: title, skill, attribution, size, and the full summary. Uses no credits. Pass includeHtml to return the stored HTML document in the text and in report.html, so a client can attach the file without a browser login. Leave it off when you only need the summary: an 80 KB report is roughly 20,000 tokens, and a larger one is truncated by many clients.",
     inputSchema: getInputSchema,
     outputSchema: getOutputSchema,
     annotations: {
@@ -332,19 +352,18 @@ export const getReportTool = {
       const url = buildDashboardUrl(context.baseUrl, path);
 
       return mcpResponse({
-        // The document goes in `text` only. It is what the agent actually
-        // reads, and repeating it in structuredContent would double a payload
-        // that is already the largest thing these tools return.
+        // HTML is repeated on `report.html` when requested. Content-only
+        // clients read `text`; a host attaching a file should use the field.
         text: [
           `${report.title} (${report.id})`,
           metaLine(report),
-          url,
+          `Optional app link (may require a separate browser login): ${url}.`,
           "",
           report.summary,
           ...(html
             ? [
                 "",
-                `HTML (${formatCount(report.sizeBytes)} bytes as stored — if what you received is shorter, your client truncated it and you must not save it back):`,
+                `HTML (${formatCount(report.sizeBytes)} bytes as stored — if what you received is shorter, your client truncated the read and you must not save it back). The same document is in report.html:`,
                 html,
               ]
             : []),
@@ -355,6 +374,7 @@ export const getReportTool = {
             ...forAgent(report),
             htmlBytes: report.sizeBytes,
             url,
+            ...(html ? { html } : {}),
           },
         },
       });
