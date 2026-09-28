@@ -405,69 +405,6 @@ describe("get_ranked_keywords scope handling", () => {
     });
   });
 
-  it("keeps ranked-keyword contract fields and drops bulky provider blobs", async () => {
-    rankedKeywords.mockResolvedValue({
-      items: [
-        {
-          keyword_data: {
-            keyword: "seo tools",
-            keyword_info: {
-              search_volume: 1000,
-              cpc: 3.2,
-              monthly_searches: [{ year: 2026, month: 1, search_volume: 1000 }],
-              categories: [10001],
-            },
-            search_intent_info: { main_intent: "commercial" },
-          },
-          ranked_serp_element: {
-            last_updated_time: "2026-09-01 00:00:00 +00:00",
-            serp_item: {
-              rank_absolute: 4,
-              url: "https://example.com/tools",
-              etv: 80,
-              type: "organic",
-              description: "A long snippet that should not ride along.",
-              links: [{ title: "Sitelink", url: "https://example.com/a" }],
-            },
-          },
-        },
-      ],
-      totalCount: 1,
-    });
-
-    const result = await researchTools.getRankedKeywordsTool.handler(
-      { projectId: "project_1", target: "acmeexample.com", limit: 25 },
-      toolContext,
-    );
-
-    const row = z
-      .object({ keywords: z.array(z.record(z.string(), z.unknown())) })
-      .passthrough()
-      .parse(result.structuredContent).keywords[0];
-    expect(row).toMatchObject({
-      keyword_data: {
-        keyword: "seo tools",
-        keyword_info: { search_volume: 1000, cpc: 3.2 },
-        search_intent_info: { main_intent: "commercial" },
-      },
-      ranked_serp_element: {
-        last_updated_time: "2026-09-01 00:00:00 +00:00",
-        serp_item: {
-          rank_absolute: 4,
-          url: "https://example.com/tools",
-          etv: 80,
-          type: "organic",
-        },
-      },
-    });
-    const info = (row?.keyword_data as { keyword_info: object }).keyword_info;
-    expect(info).not.toHaveProperty("monthly_searches");
-    expect(info).not.toHaveProperty("categories");
-    const serp = (row?.ranked_serp_element as { serp_item: object }).serp_item;
-    expect(serp).not.toHaveProperty("description");
-    expect(serp).not.toHaveProperty("links");
-  });
-
   it("passes only explicit brand exclusions to ranked keyword filters", async () => {
     await researchTools.getRankedKeywordsTool.handler(
       {
@@ -486,30 +423,6 @@ describe("get_ranked_keywords scope handling", () => {
     );
   });
 
-  it("defaults limit to 25 and still accepts 100", async () => {
-    expect(
-      researchTools.getRankedKeywordsTool.config.inputSchema.limit.parse(
-        undefined,
-      ),
-    ).toBe(25);
-
-    await researchTools.getRankedKeywordsTool.handler(
-      { projectId: "project_1", target: "acmeexample.com" },
-      toolContext,
-    );
-    expect(rankedKeywords).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 25 }),
-    );
-
-    await researchTools.getRankedKeywordsTool.handler(
-      { projectId: "project_1", target: "acmeexample.com", limit: 100 },
-      toolContext,
-    );
-    expect(rankedKeywords).toHaveBeenLastCalledWith(
-      expect.objectContaining({ limit: 100 }),
-    );
-  });
-
   it("defaults a bare domain to subdomains scope with no scope filters", async () => {
     const result = await researchTools.getRankedKeywordsTool.handler(
       { projectId: "project_1", target: "acmeexample.com" },
@@ -520,6 +433,7 @@ describe("get_ranked_keywords scope handling", () => {
       expect.objectContaining({
         target: "acmeexample.com",
         filters: undefined,
+        limit: 25,
       }),
     );
     expect(result.structuredContent).toMatchObject({

@@ -629,37 +629,37 @@ type RankedKeywordRow = {
   url: unknown;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // Labs rows embed a full SERP element (snippet text, sitelinks, xpaths) and
 // twelve months of search history. The tool contract is keyword, URL, rank,
 // volume, CPC, intent, traffic, and the ranking row's last_updated_time.
 // Dropping the blobs keeps structuredContent small on a 128MB Worker.
-const RANKED_KEYWORD_HEAVY_FIELDS = [
-  ["keyword_data", "keyword_info", "monthly_searches"],
-  ["keyword_data", "keyword_info", "categories"],
-  ["ranked_serp_element", "serp_item", "description"],
-  ["ranked_serp_element", "serp_item", "pre_snippet"],
-  ["ranked_serp_element", "serp_item", "extended_snippet"],
-  ["ranked_serp_element", "serp_item", "links"],
-  ["ranked_serp_element", "serp_item", "highlighted"],
-  ["ranked_serp_element", "serp_item", "xpath"],
-  ["ranked_serp_element", "serp_item", "about_this_result"],
-  ["ranked_serp_element", "serp_item", "images"],
-  ["ranked_serp_element", "serp_item", "faq"],
-] as const;
-
 function omitHeavyRankedKeywordFields(item: unknown) {
-  if (!item || typeof item !== "object") return item;
-  for (const path of RANKED_KEYWORD_HEAVY_FIELDS) {
-    let current: unknown = item;
-    for (let index = 0; index < path.length - 1; index++) {
-      if (!current || typeof current !== "object") {
-        current = undefined;
-        break;
-      }
-      current = (current as Record<string, unknown>)[path[index]];
+  if (!isRecord(item)) return item;
+  const keywordData = item.keyword_data;
+  if (isRecord(keywordData)) {
+    const info = keywordData.keyword_info;
+    if (isRecord(info)) {
+      delete info.monthly_searches;
+      delete info.categories;
     }
-    if (current && typeof current === "object") {
-      delete (current as Record<string, unknown>)[path[path.length - 1]];
+  }
+  const ranked = item.ranked_serp_element;
+  if (isRecord(ranked)) {
+    const serpItem = ranked.serp_item;
+    if (isRecord(serpItem)) {
+      delete serpItem.description;
+      delete serpItem.pre_snippet;
+      delete serpItem.extended_snippet;
+      delete serpItem.links;
+      delete serpItem.highlighted;
+      delete serpItem.xpath;
+      delete serpItem.about_this_result;
+      delete serpItem.images;
+      delete serpItem.faq;
     }
   }
   return item;
