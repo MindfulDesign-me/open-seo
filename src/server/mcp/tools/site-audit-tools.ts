@@ -4,14 +4,17 @@ import { AuditRepository } from "@/server/features/audit/repositories/AuditRepos
 import { AuditService } from "@/server/features/audit/services/AuditService";
 import { AppError } from "@/server/lib/errors";
 import { captureServerEvent } from "@/server/lib/posthog";
-import {
-  AUDIT_ISSUE_TYPES,
-  getIssueDescriptor,
-  ISSUE_SEVERITY_ORDER,
-} from "@/shared/audit-issues";
+import { AUDIT_ISSUE_TYPES, ISSUE_SEVERITY_ORDER } from "@/shared/audit-issues";
 import { PAGE_FETCH_CLASSES } from "@/shared/audit-fetch-class";
 import { mcpResponse } from "@/server/mcp/formatters";
 import { buildProjectMeta } from "@/server/mcp/context";
+import {
+  AUDIT_READ_DEFAULT_LIMIT,
+  AUDIT_READ_MAX_LIMIT,
+  AUDIT_WORKERS_FREE_GUIDANCE,
+  buildAuditIssueContent,
+  trimAuditPages,
+} from "@/server/mcp/tools/site-audit-payload";
 import {
   looseObjectOutputSchema,
   optionalMetaOutputSchema,
@@ -226,19 +229,22 @@ const issuesInputSchema = {
     .number()
     .int()
     .min(1)
-    .max(1_000)
-    .optional()
-    .describe("Max issues to return (default 200)."),
+    .max(AUDIT_READ_MAX_LIMIT)
+    .default(AUDIT_READ_DEFAULT_LIMIT)
+    .describe(
+      `Max issues to return (1-${AUDIT_READ_MAX_LIMIT}). Defaults to ${AUDIT_READ_DEFAULT_LIMIT}. Prefer ${AUDIT_READ_DEFAULT_LIMIT}; higher limits are expensive on Cloudflare Workers Free.`,
+    ),
 } as const;
 
-type IssuesArgs = z.infer<z.ZodObject<typeof issuesInputSchema>>;
+// Callers may omit limit. The schema default and the handler fallback both
+// fill 50.
+type IssuesArgs = z.input<z.ZodObject<typeof issuesInputSchema>>;
 
 export const getAuditIssuesTool = {
   name: "get_audit_issues",
   config: {
     title: "Get site audit issues",
-    description:
-      "Read the prioritized issue report from a completed site audit. Every issue carries a how_to_fix with concrete remediation steps an agent can act on. Free — reads OpenSEO state. Omit auditId for the most recent audit.",
+    description: `Read the prioritized issue report from a completed site audit. Every issue carries a how_to_fix with concrete remediation steps an agent can act on. When the result is large, how_to_fix is returned once per type on the summary instead of on every row, and long detail strings are shortened. Default limit is ${AUDIT_READ_DEFAULT_LIMIT} (max ${AUDIT_READ_MAX_LIMIT}). ${AUDIT_WORKERS_FREE_GUIDANCE} Free — reads OpenSEO state. Omit auditId for the most recent audit.`,
     inputSchema: issuesInputSchema,
     outputSchema: z
       .object({
@@ -267,39 +273,8 @@ export const getAuditIssuesTool = {
         a.issueType.localeCompare(b.issueType),
     );
 
-    const counts = new Map<string, number>();
-    for (const row of rows) {
-      counts.set(row.issueType, (counts.get(row.issueType) ?? 0) + 1);
-    }
-    const summary = sort(
-      Array.from(counts.entries()).map(([issueType, count]) => {
-        const descriptor = getIssueDescriptor(issueType);
-        return {
-          issueType,
-          title: descriptor?.title ?? issueType,
-          severity: descriptor?.severity ?? "info",
-          count,
-        };
-      }),
-      (a, b) =>
-        ISSUE_SEVERITY_ORDER[a.severity] - ISSUE_SEVERITY_ORDER[b.severity] ||
-        b.count - a.count,
-    );
-
-    const limit = args.limit ?? 200;
-    const issues = rows.slice(0, limit).map((row) => {
-      const descriptor = getIssueDescriptor(row.issueType);
-      return {
-        severity: row.severity,
-        issueType: row.issueType,
-        title: descriptor?.title ?? row.issueType,
-        url: row.pageUrl,
-        details: row.detailsJson
-          ? (JSON.parse(row.detailsJson) as unknown)
-          : null,
-        howToFix: descriptor?.howToFix ?? null,
-      };
-    });
+    const limit = args.limit ?? AUDIT_READ_DEFAULT_LIMIT;
+    const { summary, issues, trimmed } = buildAuditIssueContent(rows, limit);
 
     const text =
       rows.length === 0
@@ -313,7 +288,9 @@ export const getAuditIssuesTool = {
               (entry) =>
                 `- [${entry.severity}] ${entry.title} (${entry.issueType}): ${entry.count}`,
             ),
-            "Full issue rows with how_to_fix instructions are in structuredContent.issues.",
+            trimmed
+              ? "Issue rows are in structuredContent.issues. how_to_fix is on structuredContent.summary, once per type, and long detail strings are shortened."
+              : "Full issue rows with how_to_fix instructions are in structuredContent.issues.",
           ].join("\n");
 
     return mcpResponse({
@@ -352,19 +329,20 @@ const pagesInputSchema = {
     .number()
     .int()
     .min(1)
-    .max(1_000)
-    .optional()
-    .describe("Max pages to return (default 100)."),
+    .max(AUDIT_READ_MAX_LIMIT)
+    .default(AUDIT_READ_DEFAULT_LIMIT)
+    .describe(
+      `Max pages to return (1-${AUDIT_READ_MAX_LIMIT}). Defaults to ${AUDIT_READ_DEFAULT_LIMIT}. Prefer ${AUDIT_READ_DEFAULT_LIMIT}; higher limits are expensive on Cloudflare Workers Free.`,
+    ),
 } as const;
 
-type PagesArgs = z.infer<z.ZodObject<typeof pagesInputSchema>>;
+type PagesArgs = z.input<z.ZodObject<typeof pagesInputSchema>>;
 
 export const getAuditPagesTool = {
   name: "get_audit_pages",
   config: {
     title: "Get site audit pages",
-    description:
-      "List crawled pages from a site audit with per-page SEO data (status, title, description, word count, indexability, crawl depth, link counts). Free — reads OpenSEO state. Omit auditId for the most recent audit.",
+    description: `List crawled pages from a site audit with per-page SEO data (status, title, description, word count, indexability, crawl depth, link counts). When the result is large, long titles and descriptions are shortened. Default limit is ${AUDIT_READ_DEFAULT_LIMIT} (max ${AUDIT_READ_MAX_LIMIT}). ${AUDIT_WORKERS_FREE_GUIDANCE} Free — reads OpenSEO state. Omit auditId for the most recent audit.`,
     inputSchema: pagesInputSchema,
     outputSchema: z
       .object({
@@ -390,8 +368,8 @@ export const getAuditPagesTool = {
           page.statusCode === args.statusCode) &&
         (!args.urlContains || page.url.includes(args.urlContains)),
     );
-    const limit = args.limit ?? 100;
-    const pages = filtered.slice(0, limit);
+    const limit = args.limit ?? AUDIT_READ_DEFAULT_LIMIT;
+    const { pages, trimmed } = trimAuditPages(filtered.slice(0, limit));
 
     const text = [
       `Audit ${audit.id}: ${filtered.length} pages${filtered.length > limit ? ` (showing ${limit})` : ""}.`,
@@ -401,7 +379,9 @@ export const getAuditPagesTool = {
           (page) =>
             `- ${page.statusCode} ${page.url}${page.fetchClass !== "ok" ? ` [${page.fetchClass}]` : ""}  "${page.title ?? ""}"`,
         ),
-      "Full rows are in structuredContent.pages.",
+      trimmed
+        ? "Page rows are in structuredContent.pages (long titles and descriptions shortened)."
+        : "Full rows are in structuredContent.pages.",
     ].join("\n");
 
     return mcpResponse({
