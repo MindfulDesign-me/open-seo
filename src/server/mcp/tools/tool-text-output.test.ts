@@ -326,10 +326,21 @@ describe("MCP tool text output (service-backed tools)", () => {
         {
           keyword_data: {
             keyword: "seo tools",
-            keyword_info: { search_volume: 1000, cpc: 3.2 },
+            keyword_info: {
+              search_volume: 1000,
+              cpc: 3.2,
+              monthly_searches: [{ year: 2026, month: 1, search_volume: 1000 }],
+            },
+            search_intent_info: { main_intent: "commercial" },
           },
           ranked_serp_element: {
-            serp_item: { rank_absolute: 4, url: "https://example.com/tools" },
+            last_updated_time: "2026-09-01",
+            serp_item: {
+              rank_absolute: 4,
+              url: "https://example.com/tools",
+              etv: 80,
+              description: "snippet body",
+            },
           },
         },
       ],
@@ -350,6 +361,12 @@ describe("MCP tool text output (service-backed tools)", () => {
     expect(out).toContain(
       "seo tools | 4 | 1000 | 3.20 | https://example.com/tools",
     );
+    const encoded = JSON.stringify(result.structuredContent);
+    expect(encoded).toContain('"main_intent":"commercial"');
+    expect(encoded).toContain('"last_updated_time":"2026-09-01"');
+    expect(encoded).toContain('"etv":80');
+    expect(encoded).not.toContain("monthly_searches");
+    expect(encoded).not.toContain("snippet body");
   });
 
   it("get_business_updates renders each collected post as a text table", async () => {
