@@ -433,6 +433,7 @@ describe("get_ranked_keywords scope handling", () => {
       expect.objectContaining({
         target: "acmeexample.com",
         filters: undefined,
+        limit: 25,
       }),
     );
     expect(result.structuredContent).toMatchObject({
