@@ -9,13 +9,13 @@ description: "Write and save an OpenSEO report as one self-contained HTML page. 
 
 Turn finished research into one self-contained HTML page, saved to the project with `save_report`, so anyone on the team can open it in the app, read it on a phone, and print it to PDF.
 
-Every OpenSEO skill that produces a recommendation delivers through this skill. Chat gets the link, the verdict, and the leading recommendation with its expected benefit, if there is one. The report gets everything else.
+Every OpenSEO skill that produces a recommendation delivers through this skill. Chat gets the verdict and the leading recommendation with its expected benefit, if there is one. The client attaches the report from the tool result, so the user can open it without a separate browser login. The report gets everything else.
 
 ## Before you write
 
 1. Call `list_reports` for the project. If a report already covers the same subject for the same period, you are correcting your own run: pass its `reportId` to `save_report` and replace it. A new month, a new competitor, or a different skill is a new report. Never save a near-duplicate.
 2. Titles are unique within a project. Saving a second report under an existing title with no `reportId` is rejected, so either pass the `reportId` of the report you are replacing or change the title to name the new subject or period.
-3. To revise an existing report, work from its summary. `get_report` returns the HTML only with `includeHtml: true`, and an 80 KB report is roughly 20,000 tokens, which most clients truncate. Fetch the HTML only when you need to edit a specific passage, and if what comes back looks cut off, send the user to the app instead of saving over it.
+3. To revise an existing report, work from its summary. `get_report` with `includeHtml: true` returns the stored HTML in the text and in `report.html`. An 80 KB report is roughly 20,000 tokens, which most clients truncate. Fetch the HTML only when you need to edit a specific passage. If what comes back is shorter than `htmlBytes`, the read was truncated. Do not save that short version back over the stored report.
 
 ## Following a template
 
@@ -247,7 +247,7 @@ footer{max-width:660px;margin:64px 0 0;padding:26px 0 0;border-top:1px solid var
 
 ## Guardrails
 
-- Do not narrate the run in chat. Three bullets and the link is the ceiling, not the floor.
+- Do not narrate the run in chat. Three short bullets is the ceiling, not the floor. An optional last line may be `Open in the app: <url>`.
 - Do not restyle the template per report. One look, kept good, is the point. A report template may set `--accent`, the byline (for example `Prepared for NAME` or a `Prepared by` sign-off), and the footer; nothing else in the CSS changes.
 - Do not paste the report body into the chat message. The full HTML and markdown summary are already in the `save_report` result for the client to attach as a file. Do not require the user to open `url`.
 - Do not save a report into a project you were not asked about. `save_report` takes the `projectId` the skill is already working in.
