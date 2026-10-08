@@ -6,7 +6,7 @@ Accepted. Shipped in PR #570. Report templates (`specs/0013-report-templates.md`
 
 ## What it does
 
-- When an agent finishes a workflow such as `seo-audit`, it writes the result as one self-contained HTML page and saves it to the project with the free MCP tool `save_report`. `list_reports` and `get_report` read them back. SAM, the in-app agent, does not get them.
+- When an agent finishes a workflow such as `seo-audit`, it writes the result as one self-contained HTML page and saves it to the project with the free MCP tool `save_report`. The tool result includes the markdown summary and the full HTML, plus an optional app URL, so a client can attach the file without a browser login. `list_reports` and `get_report` read them back; `get_report` with `includeHtml` returns the stored HTML in the text and in `report.html`. SAM, the in-app agent, does not get them.
 - The project's Reports page lists them. A report page renders the document in a locked-down viewer, with Export (the browser's print dialog), full screen, open in a new tab, and delete.
 - Saving with an existing report id replaces the content in place. There is no version history.
 - A report can be up to 500 KB. Storage stops at 10,000 reports per project and 5 GB per organization, runaway guards rather than product limits.
@@ -28,7 +28,7 @@ Accepted. Shipped in PR #570. Report templates (`specs/0013-report-templates.md`
 
 Not signed in bounces to sign-in and back. An unknown report and another organization's report get the same 404. A report in an archived project answers 404 naming the project, since the viewer is already a member.
 
-**Skills.** A new public skill, `seo-report`, owns the save rules (list first, reuse the id when redoing the same job, reply with the link and a verdict rather than the report), the writing rules (no external resources, no scripts, no backticks or `${` because some clients pass HTML through a template literal), and the single starter template with inline CSS and one light look on screen and paper. The seven workflow skills deliver through it.
+**Skills.** A new public skill, `seo-report`, owns the save rules (list first, reuse the id when redoing the same job, the tool result carries the document for the client to attach, the chat reply is a verdict rather than a paste of the report), the writing rules (no external resources, no scripts, no backticks or `${` because some clients pass HTML through a template literal), and the single starter template with inline CSS and one light look on screen and paper. The seven workflow skills deliver through it.
 
 Both self-host modes get reports with no new binding or store. Erasing a user re-attributes their reports and revokes links on them; deleting a project cascades. Saves, deletes and opens are counted in telemetry.
 

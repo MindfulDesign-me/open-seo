@@ -92,7 +92,12 @@ describe("save_report", () => {
     expect(saved.url).toBe(
       `https://open-seo.test/p/${projectId}/reports/${saved.reportId}`,
     );
-    expect(textContent(result)).toContain(saved.url);
+    expect(saved.summary).toBe("Verdict: titles are the problem.");
+    expect(saved.html).toBe(html);
+    const text = textContent(result);
+    expect(text).toContain(saved.url);
+    expect(text).toContain(saved.summary);
+    expect(text).toContain(html);
     expect(mocks.captureServerEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "report:saved",
@@ -212,11 +217,13 @@ describe("get_report", () => {
     expect(metadataOnly.structuredContent.report).toMatchObject({
       htmlBytes: 15_517,
     });
+    expect(metadataOnly.structuredContent.report).not.toHaveProperty("html");
 
     const withHtml = await getReportTool.handler(
       { projectId, reportId, includeHtml: true },
       toolContext,
     );
     expect(textContent(withHtml)).toContain(html);
+    expect(withHtml.structuredContent.report.html).toBe(html);
   });
 });
